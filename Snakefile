@@ -18,7 +18,11 @@ for fam, sample_list in samples.items():
 ref_versions = ['GRCh38','hg19']
 callset_version = '3.3.2'
 
-chromosomes = [ 'chr{}'.format(i) for i in range(1,23) ]
+chromosomes = {
+	'GRCh38': [ 'chr{}'.format(i) for i in range(1,23) ],
+	'hg19': [ '{}'.format(i) for i in range(1,23) ],
+}
+
 
 def locate_ref(wildcards):
 	m = {
@@ -36,7 +40,12 @@ rule master:
 		#expand('release/{callset_version}/{ref_version}/{sample}.vcf.gz', callset_version=[callset_version], ref_version=ref_versions, sample=samples['AJ']),
 		expand('ftp/data/AshkenazimTrio/HG002_NA24385_son/PacBio_MtSinai_NIST/Baylor_NGMLR_bam_GRCh37/all_reads.fa.giab_h002_ngmlr-0.2.3_mapped.{ending}', ending=['bam', 'bam.bai', 'bam.md5sum']),
 		#expand('10x/{ref_version}/{sample}.vcf.gz', ref_version=ref_versions, sample=samples['AJ']),
-		expand('whatshap/GRCh38/giab-3.3.2/10x/trio/AJ.{chromosome}.vcf.gz', chromosome=chromosomes)
+		'whatshap-merged/GRCh38/giab-3.3.2/10x/trio/AJ.vcf.gz',
+		'whatshap-merged/hg19/giab-3.3.2/10x/trio/AJ.vcf.gz',
+		'whatshap-merged/hg19/giab-3.3.2/pacbio/trio-childreads/AJ.vcf.gz',
+		'whatshap-merged/hg19/giab-3.3.2/pacbio/single-childonly/AJ.vcf.gz',
+		expand('ftp/data/AshkenazimTrio/HG002_NA24385_son/PacBio_MtSinai_NIST/MtSinai_blasr_bam_GRCh37/hg002_gr37_{chromosome}.bam', chromosome=chromosomes['hg19']),
+		
 
 rule download_giab_ftp:
 	output: 'ftp/{file}'
@@ -101,6 +110,7 @@ rule translate_release:
 		cp {input[2]} {output.bed}
 		'''
 
+
 rule merge_release:
 	input:
 		vcfs=lambda wc: ['release/{}/{}/sample-wise/full/{}.vcf.gz'.format(wc.callset_version, wc.ref_version, sample) for sample in samples[wc.family]],
@@ -111,6 +121,15 @@ rule merge_release:
 		'bcftools merge --output-type z --missing-to-ref -o {output.vcf} {input.vcfs} && bcftools index --tbi {output.vcf}'
 
 
+rule intersect_callable_regions:
+	input:
+		beds=lambda wc: ['release/{}/{}/sample-wise/full/{}.callable.bed'.format(wc.callset_version, wc.ref_version, sample) for sample in samples[wc.family]],
+	output:
+		bed='release/{callset_version}/{ref_version}/family-wise/full/{family}.callable.bed',
+	shell:
+		'bedtools intersect -a {input.beds[0]} -b {input.beds[1]} | bedtools intersect -a - -b {input.beds[2]} > {output.bed}'
+
+
 rule create_sample_name_file:
 	output:
 		samples_name='sample_names/{sample}'
@@ -118,22 +137,29 @@ rule create_sample_name_file:
 		'echo {wildcards.sample} > {output.samples_name}'
 
 
-def locate_10x_vcf(wildcards):
-	return 'ftp/data/AshkenazimTrio/analysis/10XGenomics_ChromiumGenome_LongRanger2.1_09302016/{0}_{1}/{0}_{1}_phased_variants.vcf.gz'.format(samples2accession[wildcards.sample],wildcards.ref_version)
+#def locate_10x_vcf(wildcards):
+	#return 'ftp/data/AshkenazimTrio/analysis/10XGenomics_ChromiumGenome_LongRanger2.1_09302016/{0}_{1}/{0}_{1}_phased_variants.vcf.gz'.format(samples2accession[wildcards.sample],wildcards.ref_version)
 
 
-rule reheader_10x:
+rule reheader_10x_GRCh38:
 	input:
-		vcf=locate_10x_vcf,
+		vcf=lambda wc: 'ftp/data/AshkenazimTrio/analysis/10XGenomics_ChromiumGenome_LongRanger2.1_09302016/{0}_GRCh38/{0}_GRCh38_phased_variants.vcf.gz'.format(samples2accession[wc.sample]),
 		samples_name='sample_names/{sample}',
 	output:
-		vcf='10x/{ref_version}/sample-wise/full/{sample}.vcf.gz',
-		tbi='10x/{ref_version}/sample-wise/full/{sample}.vcf.gz.tbi',
+		vcf='10x/GRCh38/sample-wise/full/{sample}.vcf.gz',
+		tbi='10x/GRCh38/sample-wise/full/{sample}.vcf.gz.tbi',
 	shell:
 		'(bcftools reheader -s {input.samples_name} {input.vcf} | gunzip | awk \'BEGIN {{OFS="\\t"}} $0 ~ /^#/ {{print}} ($0 !~ /^#/) && ($7=="PASS") {{$8="."; print}}\'  | bgzip > {output.vcf} ) && bcftools index --tbi {output.vcf}'
 
-#For rewriting chromosome names:
-		#'(bcftools reheader -s {input.samples_name} {input.vcf} | gunzip | awk \'BEGIN {{OFS="\\t"}} $0 ~ /^#/ {{print}} ($0 !~ /^#/) && ($7=="PASS") {{$8="."; print}}\'  | sed -r \'/^##contig/ s/ID=chr/ID=/g\' | sed \'/^[^#]/ s/^chr//g\' | bgzip > {output.vcf} ) && bcftools index --tbi {output.vcf}'
+rule reheader_10x_hg19:
+	input:
+		vcf=lambda wc: 'ftp/data/AshkenazimTrio/analysis/10XGenomics_ChromiumGenome_LongRanger2.1_09302016/{0}_hg19/{0}_hg19_phased_variants.vcf.gz'.format(samples2accession[wc.sample]),
+		samples_name='sample_names/{sample}',
+	output:
+		vcf='10x/hg19/sample-wise/full/{sample}.vcf.gz',
+		tbi='10x/hg19/sample-wise/full/{sample}.vcf.gz.tbi',
+	shell:
+		'(bcftools reheader -s {input.samples_name} {input.vcf} | gunzip | awk \'BEGIN {{OFS="\\t"}} $0 ~ /^#/ {{print}} ($0 !~ /^#/) && ($7=="PASS") {{$8="."; print}}\'  | sed -r \'/^##contig/ s/ID=chr/ID=/g\' | sed \'/^[^#]/ s/^chr//g\' | bgzip > {output.vcf} ) && bcftools index --tbi {output.vcf}'
 
 rule vcf_extract_chromosome:
 	input:
@@ -156,6 +182,18 @@ rule vcf_unphase_chromosome:
 		'~/scm/whatshap.to-run/bin/whatshap unphase {input.vcf} | bgzip >  {output.vcf} && bcftools index --tbi {output.vcf}'
 
 
+rule vcf_extract_callable:
+	input:
+		vcf='release/{callset_version}/{ref_version}/family-wise/by-chromosome-unphased/{family}.{chromosome}.vcf.gz',
+		bed='release/{callset_version}/{ref_version}/family-wise/full/{family}.callable.bed',
+	output:
+		vcf='release/{callset_version}/{ref_version}/family-wise/by-chromosome-unphased-callable/{family}.{chromosome}.vcf.gz',
+		tbi='release/{callset_version}/{ref_version}/family-wise/by-chromosome-unphased-callable/{family}.{chromosome}.vcf.gz.tbi',
+	shell:
+		'bedtools intersect -header -a {input.vcf} -b {input.bed} | bgzip >  {output.vcf} && bcftools index --tbi {output.vcf}'
+
+
+'release/{callset_version}/{ref_version}/family-wise/full/{family}.callable.bed',
 rule merge_10x_vcfs:
 	input:
 		vcfs=lambda wc: ['10x/{}/sample-wise/full/{}.vcf.gz'.format(wc.ref_version, sample) for sample in samples[wc.family]],
@@ -210,7 +248,7 @@ rule index_bam:
 def get_genotype_vcf(wildcards):
 	if wildcards.genotypes.startswith('giab-'):
 		callset_version = wildcards.genotypes[5:]
-		return 'release/{}/{}/family-wise/by-chromosome-unphased/{}.{}.vcf.gz'.format(callset_version, wildcards.ref_version, wildcards.family, wildcards.chromosome)
+		return 'release/{}/{}/family-wise/by-chromosome-unphased-callable/{}.{}.vcf.gz'.format(callset_version, wildcards.ref_version, wildcards.family, wildcards.chromosome)
 	else:
 		assert False
 
@@ -261,5 +299,29 @@ rule whatshap_trio_childreads:
 		vcf='whatshap/{ref_version}/{genotypes}/{phaseinput}/trio-childreads/{family}.{chromosome}.vcf.gz',
 		readlist='whatshap/{ref_version}/{genotypes}/{phaseinput}/trio-childreads/{family}.{chromosome}.used-reads.tsv',
 	log: 'whatshap/{ref_version}/{genotypes}/{phaseinput}/trio-childreads/{family}.{chromosome}.vcf.log'
-	shell: '~/scm/whatshap.to-run/bin/whatshap phase --max-coverage 45 --ped {input.ped} --indels --output-read-list {output.readlist} --reference {input.ref} {input.vcf} {input.phaseinput} 2> {log} | bgzip > {output.vcf}'
+	shell: '~/scm/whatshap.to-run/bin/whatshap phase --max-coverage 45 --chromosome {wildcards.chromosome} --ped {input.ped} --indels --output-read-list {output.readlist} --reference {input.ref} {input.vcf} {input.phaseinput} 2> {log} | bgzip > {output.vcf}'
 
+
+rule whatshap_child_only:
+	input:
+		vcf=get_genotype_vcf,
+		phaseinput=get_phase_input_child,
+		phaseinput_aux=get_phase_input_child_aux,
+		ref=locate_ref
+	output:
+		vcf='whatshap/{ref_version}/{genotypes}/{phaseinput}/single-childonly/{family}.{chromosome}.vcf.gz',
+		readlist='whatshap/{ref_version}/{genotypes}/{phaseinput}/single-childonly/{family}.{chromosome}.used-reads.tsv',
+	params:
+		child=lambda wc: fam2child[wc.family]
+	log: 'whatshap/{ref_version}/{genotypes}/{phaseinput}/single-childonly/{family}.{chromosome}.vcf.log'
+	shell: '~/scm/whatshap.to-run/bin/whatshap phase --chromosome {wildcards.chromosome} --sample {params.child} --indels --output-read-list {output.readlist} --reference {input.ref} {input.vcf} {input.phaseinput} 2> {log} | bgzip > {output.vcf}'
+
+
+rule concat_vcfs:
+	input: 
+		vcfs=lambda wc: ['whatshap/{}/{}/{}/{}/{}.{}.vcf.gz'.format(wc.ref_version,wc.genotypes, wc.phaseinput, wc.what, wc.family, chromosome) for chromosome in chromosomes[wc.ref_version]]
+	output:
+		vcf='whatshap-merged/{ref_version}/{genotypes}/{phaseinput}/{what}/{family}.vcf.gz',
+		tbi='whatshap-merged/{ref_version}/{genotypes}/{phaseinput}/{what}/{family}.vcf.gz.tbi',
+	shell:
+		'bcftools concat {input.vcfs} | bgzip > {output.vcf} && bcftools index --tbi {output.vcf}'

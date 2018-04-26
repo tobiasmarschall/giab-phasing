@@ -23,6 +23,7 @@ chromosomes = {
 	'hg19': [ '{}'.format(i) for i in range(1,23) ],
 }
 
+WHATSHAP = 'LD_LIBRARY_PATH=/MMCI/TM/structvar/work/marschal/miniconda3/lib ~/scm/whatshap.to-run/venv/bin/whatshap'
 
 def locate_ref(wildcards):
 	m = {
@@ -45,7 +46,8 @@ rule master:
 		'whatshap-merged/hg19/giab-3.3.2/pacbio/trio-childreads/AJ.vcf.gz',
 		'whatshap-merged/hg19/giab-3.3.2/pacbio/single-childonly/AJ.vcf.gz',
 		expand('ftp/data/AshkenazimTrio/HG002_NA24385_son/PacBio_MtSinai_NIST/MtSinai_blasr_bam_GRCh37/hg002_gr37_{chromosome}.bam', chromosome=chromosomes['hg19']),
-		
+		'whatshap-merged/hg19/rtg/10x/trio/AJ.vcf.gz',
+
 
 rule download_giab_ftp:
 	output: 'ftp/{file}'
@@ -161,6 +163,19 @@ rule reheader_10x_hg19:
 	shell:
 		'(bcftools reheader -s {input.samples_name} {input.vcf} | gunzip | awk \'BEGIN {{OFS="\\t"}} $0 ~ /^#/ {{print}} ($0 !~ /^#/) && ($7=="PASS") {{$8="."; print}}\'  | sed -r \'/^##contig/ s/ID=chr/ID=/g\' | sed \'/^[^#]/ s/^chr//g\' | bgzip > {output.vcf} ) && bcftools index --tbi {output.vcf}'
 
+rule rtg_extract_chromsome:
+	input:
+		vcf='ftp/data/AshkenazimTrio/analysis/Rutgers_IlluminaHiSeq300X_rtg_11052015/rtg_allCallsV2.vcf.gz',
+		tbi='ftp/data/AshkenazimTrio/analysis/Rutgers_IlluminaHiSeq300X_rtg_11052015/rtg_allCallsV2.vcf.gz.tbi',
+	output:
+		vcf='rtg/hg19/family-wise/by-chromosome/AJ.{chromosome}.vcf.gz',
+		tbi='rtg/hg19/family-wise/by-chromosome/AJ.{chromosome}.vcf.gz.tbi',
+	shell:
+		'bcftools view --output-type z -o {output.vcf} {input.vcf} {wildcards.chromosome} && bcftools index --tbi {output.vcf}'
+
+
+ruleorder: rtg_extract_chromsome > vcf_extract_chromosome
+
 rule vcf_extract_chromosome:
 	input:
 		vcf='{dir}/{level}/full/{what}.vcf.gz',
@@ -171,7 +186,6 @@ rule vcf_extract_chromosome:
 	shell:
 		'bcftools view --output-type z -o {output.vcf} {input.vcf} {wildcards.chromosome} && bcftools index --tbi {output.vcf}'
 
-
 rule vcf_unphase_chromosome:
 	input:
 		vcf='{dir}/by-chromosome/{what}.{chromosome}.vcf.gz'
@@ -179,7 +193,7 @@ rule vcf_unphase_chromosome:
 		vcf='{dir}/by-chromosome-unphased/{what}.{chromosome}.vcf.gz',
 		tbi='{dir}/by-chromosome-unphased/{what}.{chromosome}.vcf.gz.tbi',
 	shell:
-		'~/scm/whatshap.to-run/bin/whatshap unphase {input.vcf} | bgzip >  {output.vcf} && bcftools index --tbi {output.vcf}'
+		'{WHATSHAP} unphase {input.vcf} | bgzip >  {output.vcf} && bcftools index --tbi {output.vcf}'
 
 
 rule vcf_extract_callable:
@@ -242,13 +256,17 @@ rule index_bam:
 		#corrected_gts='whatshap/{genotypes}/{phaseinput}/single/{family}.{chromosome}.genotype-changes.tsv',
 		#readlist='whatshap/{genotypes}/{phaseinput}/single/{family}.{chromosome}.used-reads.tsv'
 	#log: 'whatshap/{genotypes}/{phaseinput}/single/{family}.{chromosome}.vcf.log'
-	#shell: '~/scm/whatshap.to-run/bin/whatshap phase --indels --distrust-genotypes --output-read-list {output.readlist} --changed-genotype-list {output.corrected_gts} --reference {input.ref} -o {output.vcf} {input.vcf} {input.phaseinput} > {log} 2>&1'
+	#shell: '{WHATSHAP} phase --indels --distrust-genotypes --output-read-list {output.readlist} --changed-genotype-list {output.corrected_gts} --reference {input.ref} -o {output.vcf} {input.vcf} {input.phaseinput} > {log} 2>&1'
 
 
 def get_genotype_vcf(wildcards):
 	if wildcards.genotypes.startswith('giab-'):
 		callset_version = wildcards.genotypes[5:]
 		return 'release/{}/{}/family-wise/by-chromosome-unphased-callable/{}.{}.vcf.gz'.format(callset_version, wildcards.ref_version, wildcards.family, wildcards.chromosome)
+	elif wildcards.genotypes == 'rtg':
+		assert wildcards.ref_version == 'hg19', 'RTG calls only available for hg19'
+		assert wildcards.family == 'AJ', 'RTG calls only available for AJ trio'
+		return 'rtg/hg19/family-wise/by-chromosome/AJ.{}.vcf.gz'.format(wildcards.chromosome)
 	else:
 		assert False
 
@@ -285,7 +303,7 @@ rule whatshap_trio:
 		recomb='whatshap/{ref_version}/{genotypes}/{phaseinput}/trio/{family}.{chromosome}.recomb',
 		readlist='whatshap/{ref_version}/{genotypes}/{phaseinput}/trio/{family}.{chromosome}.used-reads.tsv'
 	log: 'whatshap/{ref_version}/{genotypes}/{phaseinput}/trio/{family}.{chromosome}.vcf.log'
-	shell: '~/scm/whatshap.to-run/bin/whatshap phase --ped {input.ped} --indels --output-read-list {output.readlist} --reference {input.ref} --recombination-list {output.recomb} {input.vcf} {input.phaseinput}  2> {log} | bgzip > {output.vcf}'
+	shell: '{WHATSHAP} phase --ped {input.ped} --indels --output-read-list {output.readlist} --reference {input.ref} --recombination-list {output.recomb} {input.vcf} {input.phaseinput}  2> {log} | bgzip > {output.vcf}'
 
 
 rule whatshap_trio_childreads:
@@ -299,7 +317,7 @@ rule whatshap_trio_childreads:
 		vcf='whatshap/{ref_version}/{genotypes}/{phaseinput}/trio-childreads/{family}.{chromosome}.vcf.gz',
 		readlist='whatshap/{ref_version}/{genotypes}/{phaseinput}/trio-childreads/{family}.{chromosome}.used-reads.tsv',
 	log: 'whatshap/{ref_version}/{genotypes}/{phaseinput}/trio-childreads/{family}.{chromosome}.vcf.log'
-	shell: '~/scm/whatshap.to-run/bin/whatshap phase --max-coverage 45 --chromosome {wildcards.chromosome} --ped {input.ped} --indels --output-read-list {output.readlist} --reference {input.ref} {input.vcf} {input.phaseinput} 2> {log} | bgzip > {output.vcf}'
+	shell: '{WHATSHAP} phase --max-coverage 45 --chromosome {wildcards.chromosome} --ped {input.ped} --indels --output-read-list {output.readlist} --reference {input.ref} {input.vcf} {input.phaseinput} 2> {log} | bgzip > {output.vcf}'
 
 
 rule whatshap_child_only:
@@ -314,7 +332,7 @@ rule whatshap_child_only:
 	params:
 		child=lambda wc: fam2child[wc.family]
 	log: 'whatshap/{ref_version}/{genotypes}/{phaseinput}/single-childonly/{family}.{chromosome}.vcf.log'
-	shell: '~/scm/whatshap.to-run/bin/whatshap phase --chromosome {wildcards.chromosome} --sample {params.child} --indels --output-read-list {output.readlist} --reference {input.ref} {input.vcf} {input.phaseinput} 2> {log} | bgzip > {output.vcf}'
+	shell: '{WHATSHAP} phase --chromosome {wildcards.chromosome} --sample {params.child} --indels --output-read-list {output.readlist} --reference {input.ref} {input.vcf} {input.phaseinput} 2> {log} | bgzip > {output.vcf}'
 
 
 rule concat_vcfs:

@@ -5,7 +5,10 @@ might need to adapt to use it.
 
 ## Phasing from RTG and 10x data
 
-The results of the following analysis can be found [here](ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/AshkenazimTrio/analysis/NIST_MPI_whatshap_08232018/).
+The results of the following analysis can be found at
+```
+ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/AshkenazimTrio/analysis/NIST_MPI_whatshap_08232018/
+```
 
 To produce a chromosome-length phasing of small variants for the Ashkenazim trio, we combined variant
 calls from Real Time Genomics [1] with phased blocks produced by 10x Genomics [2,3,4]. The single sample

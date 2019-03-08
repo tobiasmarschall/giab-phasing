@@ -15,7 +15,10 @@ calls from Real Time Genomics [1] with phased blocks produced by 10x Genomics [2
 10x Genomics VCF files were combined into multi-sample VCF using bcftools and all VCFs were split by 
 chromosome (to facilitate easy parallelization with Snakemake). Then, WhatsHap (version 0.15+14.ga105b78, [5])
 was used in pedigree-aware mode [6] using the following command line:
+
+```
 whatshap phase --ped AJ.ped --indels --reference hg19.fasta rtg.vcf 10x-merged.vcf | bgzip > output.vcf
+```
 
 [1] ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/AshkenazimTrio/analysis/Rutgers_IlluminaHiSeq300X_rtg_11052015/rtg_allCallsV2.vcf.gz
 
